@@ -1,0 +1,509 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CFO Quality Scorer</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@300;400;500&display=swap');
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg: #0d0f14; --surface: #141720; --surface2: #1c2030;
+    --border: #2a2f3e; --text: #e8eaf0; --muted: #6b7280;
+    --accent: #4ade80; --accent2: #60a5fa; --warn: #fbbf24; --danger: #f87171;
+    --mono: 'IBM Plex Mono', monospace; --sans: 'IBM Plex Sans', sans-serif;
+  }
+  body { background: var(--bg); color: var(--text); font-family: var(--sans); font-size: 14px; line-height: 1.6; min-height: 100vh; padding: 28px 24px; }
+
+  .header { display: flex; align-items: baseline; gap: 14px; margin-bottom: 28px; border-bottom: 1px solid var(--border); padding-bottom: 14px; }
+  .title { font-family: var(--mono); font-size: 18px; font-weight: 600; color: var(--accent); }
+  .subtitle { font-family: var(--mono); font-size: 11px; color: var(--muted); }
+
+  .layout { display: grid; grid-template-columns: 320px 1fr; gap: 18px; }
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 18px; }
+  .card-title { font-family: var(--mono); font-size: 10px; color: var(--muted); letter-spacing: 1px; text-transform: uppercase; margin-bottom: 14px; }
+  .left { display: flex; flex-direction: column; gap: 14px; }
+
+  .ticker-input {
+    width: 100%; background: var(--bg); border: 1px solid var(--border);
+    color: var(--text); font-family: var(--mono); font-size: 13px;
+    padding: 10px 12px; border-radius: 6px; outline: none; resize: none;
+    line-height: 1.8; transition: border-color 0.15s; margin-bottom: 10px;
+  }
+  .ticker-input:focus { border-color: var(--accent2); }
+  .ticker-hint { font-size: 11px; color: var(--muted); margin-bottom: 8px; font-family: var(--mono); }
+
+  .watchlist-wrap { margin-bottom: 12px; }
+  .watchlist-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+  .watchlist-title { font-family: var(--mono); font-size: 10px; color: var(--muted); letter-spacing: 1px; text-transform: uppercase; }
+  .wl-actions { display: flex; gap: 6px; }
+  .wl-btn { font-family: var(--mono); font-size: 10px; padding: 3px 8px; background: none; border: 1px solid var(--border); color: var(--muted); border-radius: 4px; cursor: pointer; transition: all 0.12s; }
+  .wl-btn:hover { border-color: var(--accent); color: var(--accent); }
+  .wl-btn.save { border-color: rgba(74,222,128,0.4); color: var(--accent); }
+  .wl-btn.save:hover { background: rgba(74,222,128,0.1); }
+  .watchlist-tags { display: flex; flex-wrap: wrap; gap: 5px; min-height: 28px; }
+  .wl-tag { display: flex; align-items: center; gap: 4px; font-family: var(--mono); font-size: 11px; padding: 3px 8px; background: var(--surface2); border: 1px solid var(--border); color: var(--accent2); border-radius: 4px; cursor: pointer; transition: all 0.12s; }
+  .wl-tag:hover { border-color: var(--accent2); background: rgba(96,165,250,0.1); }
+  .wl-tag .del { color: var(--muted); font-size: 13px; line-height: 1; margin-left: 2px; }
+  .wl-tag .del:hover { color: var(--danger); }
+  .wl-empty { font-family: var(--mono); font-size: 11px; color: var(--muted); font-style: italic; }
+  .save-toast { font-family: var(--mono); font-size: 11px; color: var(--accent); padding: 6px 10px; background: rgba(74,222,128,0.1); border: 1px solid rgba(74,222,128,0.25); border-radius: 5px; margin-bottom: 8px; display: none; text-align: center; }
+
+  .run-btn { width: 100%; padding: 11px; background: var(--accent); border: none; color: #0a1a0a; font-family: var(--mono); font-size: 13px; font-weight: 600; border-radius: 6px; cursor: pointer; letter-spacing: 0.5px; transition: opacity 0.15s; display: flex; align-items: center; justify-content: center; gap: 8px; margin-bottom: 8px; }
+  .run-btn:hover { opacity: 0.88; }
+  .run-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .spinner { width: 14px; height: 14px; border: 2px solid #0a1a0a; border-top-color: transparent; border-radius: 50%; animation: spin 0.7s linear infinite; display: none; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .presets { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 4px; }
+  .preset-btn { font-family: var(--mono); font-size: 11px; padding: 3px 8px; background: var(--surface2); border: 1px solid var(--border); color: var(--muted); border-radius: 4px; cursor: pointer; transition: all 0.12s; }
+  .preset-btn:hover { border-color: var(--accent2); color: var(--accent2); }
+
+  .note { font-size: 11px; color: var(--muted); font-family: var(--mono); line-height: 1.9; background: var(--surface2); border-radius: 6px; padding: 12px 14px; border-left: 3px solid var(--border); }
+  .error-box { background: rgba(248,113,113,0.08); border: 1px solid rgba(248,113,113,0.25); border-radius: 6px; padding: 10px 14px; font-family: var(--mono); font-size: 11px; color: var(--danger); margin-bottom: 10px; display: none; }
+
+  .right { display: flex; flex-direction: column; gap: 14px; }
+  .results-wrap { overflow-x: auto; }
+
+  table { width: 100%; border-collapse: collapse; font-family: var(--mono); font-size: 12px; }
+  th { padding: 8px 12px; text-align: right; font-size: 10px; color: var(--muted); letter-spacing: 0.5px; border-bottom: 1px solid var(--border); background: var(--surface2); white-space: nowrap; }
+  th:first-child, th.left-align { text-align: left; }
+  td { padding: 10px 12px; text-align: right; border-bottom: 1px solid rgba(42,47,62,0.5); vertical-align: middle; }
+  td:first-child { text-align: left; }
+  tr:last-child td { border-bottom: none; }
+  tr:hover td { background: var(--surface2); }
+
+  .ticker-cell { font-weight: 600; color: var(--accent2); font-size: 13px; }
+  .name-cell { font-size: 11px; color: var(--muted); }
+  .cfo-year { font-size: 10px; color: var(--muted); margin-top: 2px; }
+
+  /* Mini sparkline */
+  .sparkline-wrap { display: flex; align-items: center; justify-content: flex-end; }
+  .sparkline-canvas { display: block; }
+
+  .bar-wrap { display: flex; align-items: center; gap: 7px; }
+  .bar { height: 5px; border-radius: 3px; background: var(--border); width: 60px; overflow: hidden; }
+  .bar-fill { height: 100%; border-radius: 3px; }
+  .score-num { font-size: 14px; font-weight: 600; min-width: 34px; text-align: right; }
+
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; }
+  .ap { background: rgba(74,222,128,0.15); color: #4ade80; border: 1px solid rgba(74,222,128,0.3); }
+  .a  { background: rgba(96,165,250,0.15); color: #60a5fa; border: 1px solid rgba(96,165,250,0.3); }
+  .bp { background: rgba(251,191,36,0.15); color: #fbbf24; border: 1px solid rgba(251,191,36,0.3); }
+  .b  { background: rgba(156,163,175,0.15); color: #9ca3af; border: 1px solid rgba(156,163,175,0.3); }
+  .c  { background: rgba(249,115,22,0.1); color: #f97316; border: 1px solid rgba(249,115,22,0.3); }
+  .d  { background: rgba(248,113,113,0.1); color: #f87171; border: 1px solid rgba(248,113,113,0.3); }
+
+  .pos { color: var(--accent); } .neg { color: var(--danger); } .neu { color: var(--warn); }
+
+  .charts-row { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .chart-wrap { position: relative; height: 200px; }
+  .legend { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 10px; }
+  .leg { display: flex; align-items: center; gap: 4px; font-size: 11px; color: var(--muted); font-family: var(--mono); }
+  .leg-sq { width: 8px; height: 8px; border-radius: 2px; }
+
+  .empty { padding: 40px; text-align: center; color: var(--muted); font-family: var(--mono); font-size: 12px; line-height: 2; }
+  .loading { display: none; padding: 40px; text-align: center; font-family: var(--mono); font-size: 12px; color: var(--accent); }
+  .loading-spinner { width: 28px; height: 28px; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.8s linear infinite; margin: 0 auto 12px; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="title">CFO_QUALITY_SCORER</div>
+  <div class="subtitle">// 输入股票代号 → 自动拉取最新数据 → 评分</div>
+</div>
+
+<div class="layout">
+  <div class="left">
+    <div class="card">
+      <div class="card-title">股票代号</div>
+      <div class="watchlist-wrap">
+        <div class="watchlist-header">
+          <div class="watchlist-title">已保存清单</div>
+          <div class="wl-actions">
+            <button class="wl-btn save" onclick="saveWatchlist()">+ 保存当前</button>
+            <button class="wl-btn" onclick="clearWatchlist()">清空</button>
+          </div>
+        </div>
+        <div class="save-toast" id="saveToast">✓ 已保存！下次打开自动加载</div>
+        <div class="watchlist-tags" id="watchlistTags"><span class="wl-empty">还没有保存的清单</span></div>
+      </div>
+
+      <div class="ticker-hint">每行一个，或用空格/逗号分隔</div>
+      <textarea class="ticker-input" id="tickerInput" rows="6" placeholder="NET&#10;NVDA&#10;MSFT&#10;META&#10;TSLA"></textarea>
+
+      <div style="margin-bottom:10px">
+        <div class="ticker-hint" style="margin-bottom:6px">快速填入：</div>
+        <div class="presets">
+          <button class="preset-btn" onclick="addPreset('FAANG')">FAANG+</button>
+          <button class="preset-btn" onclick="addPreset('SEMIS')">半导体</button>
+          <button class="preset-btn" onclick="addPreset('CLOUD')">云计算</button>
+          <button class="preset-btn" onclick="addPreset('CLEAR')">清空</button>
+        </div>
+      </div>
+
+      <button class="run-btn" id="runBtn" onclick="runAnalysis()">
+        <div class="spinner" id="spinner"></div>
+        <span id="btnText">▶ 分析</span>
+      </button>
+    </div>
+
+    <div class="card">
+      <div class="card-title">评分说明</div>
+      <div class="note">
+        成长稳定性  /40<br>
+        &nbsp;CFO 年均增速 + 不大跌<br><br>
+        CFO Yield   /40<br>
+        &nbsp;CFO ÷ 市值，越高越便宜<br>
+        &nbsp;&gt;5% 满分 | &lt;1% 低分<br><br>
+        FCF 转正    /20<br>
+        &nbsp;自由现金流是否为正<br><br>
+        A+(≥85) A(≥75) B+(≥65)<br>
+        B(≥55) C(≥40) D(&lt;40)
+      </div>
+    </div>
+  </div>
+
+  <div class="right">
+    <div class="card" id="resultsCard">
+      <div class="card-title">评分结果</div>
+      <div class="error-box" id="errorBox"></div>
+      <div class="empty" id="emptyState">
+        输入股票代号后点击分析<br>
+        <span style="color:#2a2f3e">── 等待中 ──</span>
+      </div>
+      <div class="loading" id="loadingState">
+        <div class="loading-spinner"></div>
+        正在拉取数据，请稍候...
+      </div>
+      <div class="results-wrap" id="resultsWrap" style="display:none">
+        <table id="resultsTable">
+          <thead>
+            <tr>
+              <th>Ticker</th>
+              <th class="left-align">CFO 趋势</th>
+              <th>CFO 最新</th>
+              <th>市值</th>
+              <th>CFO Yield</th>
+              <th>YoY 增长</th>
+              <th>预测CFO↑</th>
+              <th>预测Yield↑</th>
+              <th>分数构成 (成长/Yield/FCF)</th>
+              <th>总分</th>
+              <th>评级</th>
+            </tr>
+          </thead>
+          <tbody id="resultsBody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="charts-row" id="chartsRow" style="display:none">
+      <div class="card">
+        <div class="card-title">分数构成</div>
+        <div class="legend">
+          <div class="leg"><div class="leg-sq" style="background:#60a5fa"></div>成长</div>
+          <div class="leg"><div class="leg-sq" style="background:#fbbf24"></div>Yield</div>
+          <div class="leg"><div class="leg-sq" style="background:#4ade80"></div>FCF</div>
+        </div>
+        <div class="chart-wrap"><canvas id="stackChart" role="img" aria-label="Score breakdown"></canvas></div>
+      </div>
+      <div class="card">
+        <div class="card-title">CFO Yield 对比</div>
+        <div class="chart-wrap"><canvas id="yieldChart" role="img" aria-label="CFO yield comparison"></canvas></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+let stackChart = null, yieldChart = null;
+const STORAGE_KEY = 'cfo_watchlist';
+const sparklineCharts = {};
+
+const PRESETS = {
+  FAANG: 'META\nAAPL\nAMZN\nNFLX\nGOOGL',
+  SEMIS: 'NVDA\nTSM\nAMD\nINTC\nASML',
+  CLOUD: 'NET\nMSFT\nAMZN\nSNOW\nCRM',
+  CLEAR: ''
+};
+
+// ── Watchlist ─────────────────────────────────────────────
+function loadWatchlist() {
+  try { return JSON.parse(localStorage.getItem(STORAGE_KEY)) || []; } catch { return []; }
+}
+function saveToStorage(list) {
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(list)); } catch {}
+}
+function renderWatchlistTags() {
+  const list = loadWatchlist();
+  const wrap = document.getElementById('watchlistTags');
+  if (!list.length) { wrap.innerHTML = '<span class="wl-empty">还没有保存的清单</span>'; return; }
+  wrap.innerHTML = list.map((item, i) => `
+    <div class="wl-tag" onclick="loadWatchlistItem(${i})">
+      <span>${item.name}</span>
+      <span class="del" onclick="event.stopPropagation();deleteWatchlistItem(${i})">×</span>
+    </div>`).join('');
+}
+function saveWatchlist() {
+  const tickers = parseTickers(document.getElementById('tickerInput').value);
+  if (!tickers.length) return;
+  const name = tickers.slice(0,3).join('+') + (tickers.length > 3 ? '...' : '');
+  const list = loadWatchlist();
+  list.unshift({ name, tickers });
+  if (list.length > 10) list.pop();
+  saveToStorage(list);
+  renderWatchlistTags();
+  const toast = document.getElementById('saveToast');
+  toast.style.display = 'block';
+  setTimeout(() => toast.style.display = 'none', 2500);
+}
+function loadWatchlistItem(i) {
+  const list = loadWatchlist();
+  if (list[i]) document.getElementById('tickerInput').value = list[i].tickers.join('\n');
+}
+function deleteWatchlistItem(i) {
+  const list = loadWatchlist(); list.splice(i,1); saveToStorage(list); renderWatchlistTags();
+}
+function clearWatchlist() { saveToStorage([]); renderWatchlistTags(); }
+
+// ── Helpers ───────────────────────────────────────────────
+function addPreset(key) { document.getElementById('tickerInput').value = PRESETS[key]; }
+function parseTickers(raw) { return raw.split(/[\n,\s]+/).map(t => t.trim().toUpperCase()).filter(t => t.length > 0); }
+function fmtCFO(v) {
+  if (v == null) return '—';
+  const abs = Math.abs(v);
+  if (abs >= 1000) return (v < 0 ? '-' : '') + '$' + (abs/1000).toFixed(1) + 'B';
+  return (v < 0 ? '-$' : '$') + abs.toFixed(0) + 'M';
+}
+function getBarColor(s) { return s >= 75 ? '#4ade80' : s >= 55 ? '#60a5fa' : s >= 40 ? '#fbbf24' : '#f87171'; }
+function gradeCls(g) { return {'A+':'ap','A':'a','B+':'bp','B':'b','C':'c','D':'d'}[g]||'b'; }
+
+// ── Sparkline ─────────────────────────────────────────────
+function drawSparkline(canvasId, values, years) {
+  const canvas = document.getElementById(canvasId);
+  if (!canvas) return;
+
+  // Destroy old chart if exists
+  if (sparklineCharts[canvasId]) { sparklineCharts[canvasId].destroy(); }
+
+  const isAllPositive = values.every(v => v >= 0);
+  const lineColor = isAllPositive ? '#4ade80' : '#fbbf24';
+
+  sparklineCharts[canvasId] = new Chart(canvas, {
+    type: 'line',
+    data: {
+      labels: years,
+      datasets: [{
+        data: values,
+        borderColor: lineColor,
+        borderWidth: 1.5,
+        pointRadius: 2,
+        pointBackgroundColor: lineColor,
+        fill: true,
+        backgroundColor: isAllPositive ? 'rgba(74,222,128,0.08)' : 'rgba(251,191,36,0.08)',
+        tension: 0.3,
+      }]
+    },
+    options: {
+      responsive: false,
+      animation: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label: ctx => fmtCFO(ctx.parsed.y),
+            title: ctx => ctx[0].label + ' 财年'
+          },
+          bodyFont: { family: 'IBM Plex Mono', size: 10 },
+          titleFont: { family: 'IBM Plex Mono', size: 10 },
+          padding: 6,
+        }
+      },
+      scales: {
+        x: { display: false },
+        y: { display: false }
+      }
+    }
+  });
+}
+
+// ── Analysis ──────────────────────────────────────────────
+async function runAnalysis() {
+  const tickers = parseTickers(document.getElementById('tickerInput').value);
+  if (!tickers.length) return;
+
+  // Destroy old sparklines
+  Object.keys(sparklineCharts).forEach(k => { try { sparklineCharts[k].destroy(); delete sparklineCharts[k]; } catch {} });
+
+  document.getElementById('runBtn').disabled = true;
+  document.getElementById('spinner').style.display = 'block';
+  document.getElementById('btnText').textContent = '分析中...';
+  document.getElementById('emptyState').style.display = 'none';
+  document.getElementById('loadingState').style.display = 'block';
+  document.getElementById('resultsWrap').style.display = 'none';
+  document.getElementById('chartsRow').style.display = 'none';
+  document.getElementById('errorBox').style.display = 'none';
+
+  try {
+    const resp = await fetch('/analyze', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tickers })
+    });
+    const data = await resp.json();
+
+    if (data.errors && data.errors.length) {
+      const box = document.getElementById('errorBox');
+      box.textContent = '⚠️ ' + data.errors.join('  |  ');
+      box.style.display = 'block';
+    }
+
+    if (data.results && data.results.length) {
+      renderTable(data.results);
+      // Draw sparklines after DOM is ready
+      setTimeout(() => {
+        data.results.forEach(r => {
+          drawSparkline('spark_' + r.symbol, r.ocf_values, r.years);
+        });
+      }, 50);
+      renderCharts(data.results);
+      document.getElementById('resultsWrap').style.display = 'block';
+      document.getElementById('chartsRow').style.display = 'grid';
+    }
+  } catch(e) {
+    document.getElementById('emptyState').style.display = 'block';
+    document.getElementById('emptyState').innerHTML = '❌ 无法连接服务器<br><span style="color:#3a3f50">请确认 start.bat 正在运行</span>';
+  }
+
+  document.getElementById('loadingState').style.display = 'none';
+  document.getElementById('runBtn').disabled = false;
+  document.getElementById('spinner').style.display = 'none';
+  document.getElementById('btnText').textContent = '▶ 重新分析';
+}
+
+function autoAnalysis(r) {
+  const g = r.growth_score;
+  const y = r.yield_score;
+  const yp = r.cfo_yield;
+  const fcf = r.fcf_score;
+  const growths = r.yoy_growths || [];
+  const hasDropYear = growths.some(x => x < -20);
+
+  // 判断成长
+  const growthGood = g >= 30;
+  const growthOk   = g >= 18;
+
+  // 判断估值
+  const cheap    = yp >= 3;
+  const fair     = yp >= 1 && yp < 3;
+  const expensive = yp < 1;
+
+  // 判断FCF
+  const fcfOk = fcf >= 20;
+
+  // 组合判断
+  if (growthGood && cheap && fcfOk)    return { text: '✦ 成长强 + 价格便宜 → 可重点研究', color: '#4ade80' };
+  if (growthGood && fair && fcfOk)     return { text: '△ 成长强，估值合理，等回调更好', color: '#4ade80' };
+  if (growthGood && expensive && fcfOk) return { text: '▲ 成长很好，但目前偏贵，等回调', color: '#fbbf24' };
+  if (growthOk && cheap)               return { text: '◇ 价格便宜，成长一般，注意风险', color: '#fbbf24' };
+  if (growthOk && fair)                return { text: '— 各方面普通，暂时观察', color: '#6b7280' };
+  if (!growthOk && cheap)              return { text: '⚠ 便宜但成长弱，基本面待改善', color: '#f97316' };
+  if (hasDropYear && expensive)        return { text: '✕ 曾大跌 + 价格贵，高风险', color: '#f87171' };
+  if (!growthOk && expensive)          return { text: '✕ 成长慢 + 价格贵，不建议', color: '#f87171' };
+  if (fcf < 20 && expensive)           return { text: '⚠ FCF未转正 + 贵，谨慎', color: '#f87171' };
+  return { text: '— 综合评分普通，继续观察', color: '#6b7280' };
+}
+
+function renderTable(results) {
+  const body = document.getElementById('resultsBody');
+  body.innerHTML = '';
+  results.forEach(r => {
+    const growthHtml = (r.yoy_growths||[]).map(g => {
+      const cls = g >= 0 ? 'pos' : 'neg';
+      return `<span class="${cls}">${g>0?'+':''}${g}%</span>`;
+    }).join(' ');
+
+    const color = getBarColor(r.total);
+    const barW = Math.round(r.total);
+    const latestYear = r.years && r.years.length ? r.years[r.years.length-1] : '';
+    const analysis = autoAnalysis(r);
+
+    body.innerHTML += `<tr>
+      <td>
+        <div class="ticker-cell">${r.symbol}</div>
+        <div class="name-cell">${(r.name||'').substring(0,20)}</div>
+        <div style="font-size:10px; margin-top:3px; color:${analysis.color}; font-family:var(--mono);">${analysis.text}</div>
+      </td>
+      <td style="text-align:left; padding: 6px 12px;">
+        <canvas id="spark_${r.symbol}" class="sparkline-canvas" width="90" height="36"></canvas>
+      </td>
+      <td>
+        <div>${fmtCFO(r.cfo_latest)}</div>
+        <div class="cfo-year">${latestYear ? latestYear+' 财年' : ''}</div>
+      </td>
+      <td>${r.market_cap ? '$'+r.market_cap.toFixed(1)+'B' : '—'}</td>
+      <td class="${r.cfo_yield>=3?'pos':r.cfo_yield>=1?'neu':'neg'}">${r.cfo_yield ? r.cfo_yield.toFixed(2)+'%' : '—'}</td>
+      <td style="font-size:11px">${growthHtml||'—'}</td>
+      <td>
+        <div style="font-family:var(--mono); font-size:12px; color:var(--accent2);">${fmtCFO(r.predicted_cfo)}</div>
+        <div style="font-size:10px; color:var(--muted);">+${r.avg_growth_pct}% 估算</div>
+      </td>
+      <td class="${r.predicted_yield>=3?'pos':r.predicted_yield>=1?'neu':'neg'}" style="font-family:var(--mono); font-size:12px;">
+        ${r.predicted_yield ? r.predicted_yield.toFixed(2)+'%' : '—'}
+        <div style="font-size:10px; color:var(--muted);">现在: ${r.cfo_yield ? r.cfo_yield.toFixed(2)+'%' : '—'}</div>
+      </td>
+      <td>
+        <div style="display:flex; align-items:center; gap:6px; font-family:var(--mono); font-size:12px;">
+          <span style="color:var(--accent2); background:rgba(96,165,250,0.1); padding:2px 6px; border-radius:4px;">${r.growth_score}</span>
+          <span style="color:var(--muted); font-size:10px;">+</span>
+          <span style="color:var(--warn); background:rgba(251,191,36,0.1); padding:2px 6px; border-radius:4px;">${r.yield_score}</span>
+          <span style="color:var(--muted); font-size:10px;">+</span>
+          <span style="color:var(--accent); background:rgba(74,222,128,0.1); padding:2px 6px; border-radius:4px;">${r.fcf_score}</span>
+        </div>
+      </td>
+      <td>
+        <div class="bar-wrap">
+          <div class="bar"><div class="bar-fill" style="width:${barW}%;background:${color}"></div></div>
+          <span class="score-num" style="color:${color}">${r.total}</span>
+        </div>
+      </td>
+      <td><span class="badge ${gradeCls(r.grade)}">${r.grade}</span></td>
+    </tr>`;
+  });
+}
+
+function renderCharts(results) {
+  if (stackChart) { stackChart.destroy(); stackChart = null; }
+  if (yieldChart) { yieldChart.destroy(); yieldChart = null; }
+  const labels = results.map(r => r.symbol);
+
+  stackChart = new Chart(document.getElementById('stackChart'), {
+    type: 'bar',
+    data: { labels, datasets: [
+      { label:'成长', data: results.map(r=>r.growth_score), backgroundColor:'rgba(96,165,250,0.85)', borderRadius:3 },
+      { label:'Yield', data: results.map(r=>r.yield_score), backgroundColor:'rgba(251,191,36,0.85)', borderRadius:3 },
+      { label:'FCF', data: results.map(r=>r.fcf_score), backgroundColor:'rgba(74,222,128,0.85)', borderRadius:3 },
+    ]},
+    options: { responsive:true, maintainAspectRatio:false, plugins:{ legend:{display:false} },
+      scales: { x:{stacked:true,ticks:{color:'#6b7280',font:{size:11}},grid:{display:false}}, y:{stacked:true,max:100,ticks:{color:'#6b7280',font:{size:10}},grid:{color:'rgba(42,47,62,0.8)'}} } }
+  });
+
+  const yieldColors = results.map(r => r.cfo_yield>=3?'rgba(74,222,128,0.85)':r.cfo_yield>=1?'rgba(251,191,36,0.85)':'rgba(248,113,113,0.85)');
+  yieldChart = new Chart(document.getElementById('yieldChart'), {
+    type: 'bar',
+    data: { labels, datasets:[{ label:'CFO Yield %', data:results.map(r=>r.cfo_yield||0), backgroundColor:yieldColors, borderRadius:4 }] },
+    options: { responsive:true, maintainAspectRatio:false,
+      plugins:{ legend:{display:false}, tooltip:{callbacks:{label:c=>'Yield: '+c.parsed.y.toFixed(2)+'%'}} },
+      scales: { x:{ticks:{color:'#6b7280',font:{size:11}},grid:{display:false}}, y:{ticks:{color:'#6b7280',font:{size:10},callback:v=>v.toFixed(1)+'%'},grid:{color:'rgba(42,47,62,0.8)'}} } }
+  });
+}
+
+// ── Init ──────────────────────────────────────────────────
+renderWatchlistTags();
+document.getElementById('tickerInput').addEventListener('keydown', e => { if (e.ctrlKey && e.key==='Enter') runAnalysis(); });
+</script>
+</body>
+</html>
