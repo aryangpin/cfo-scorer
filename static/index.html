@@ -190,6 +190,9 @@
               <th>YoY 增长</th>
               <th>预测CFO↑</th>
               <th>预测Yield↑</th>
+              <th>EPS 最新</th>
+              <th>P/E vs P/FCF</th>
+              <th>EPS×CFO 信号</th>
               <th>分数构成 (成长/Yield/FCF)</th>
               <th>总分</th>
               <th>评级</th>
@@ -454,6 +457,21 @@ function renderTable(results) {
       <td class="${r.predicted_yield>=3?'pos':r.predicted_yield>=1?'neu':'neg'}" style="font-family:var(--mono); font-size:12px;">
         ${r.predicted_yield ? r.predicted_yield.toFixed(2)+'%' : '—'}
         <div style="font-size:10px; color:var(--muted);">现在: ${r.cfo_yield ? r.cfo_yield.toFixed(2)+'%' : '—'}</div>
+      </td>
+      <td style="font-family:var(--mono); font-size:12px;">
+        <div style="color:var(--text)">${r.eps_latest != null ? '$'+r.eps_latest.toFixed(2) : '—'}</div>
+        <div style="font-size:10px; color:${r.eps_growth >= 0 ? 'var(--accent)' : 'var(--danger)'}">
+          ${r.eps_growth != null ? (r.eps_growth > 0 ? '+' : '') + r.eps_growth + '%' : ''}
+        </div>
+      </td>
+      <td style="font-family:var(--mono); font-size:11px;">
+        <div>P/E: <span style="color:var(--warn)">${r.pe_ratio ? r.pe_ratio+'x' : '—'}</span></div>
+        <div>P/FCF: <span style="color:${r.p_fcf && r.p_fcf < 20 ? 'var(--accent)' : r.p_fcf && r.p_fcf < 40 ? 'var(--warn)' : 'var(--danger)'}">
+          ${r.p_fcf ? r.p_fcf+'x' : '—'}</span>
+        </div>
+      </td>
+      <td style="font-size:11px; font-family:var(--mono);">
+        <span style="color:${r.eps_cfo_signal.color}">${r.eps_cfo_signal.icon} ${r.eps_cfo_signal.label}</span>
       </td>
       <td>
         <div style="display:flex; align-items:center; gap:6px; font-family:var(--mono); font-size:12px;">
