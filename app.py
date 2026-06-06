@@ -41,6 +41,33 @@ def get_financials(symbol):
 
         mktcap = t.fast_info.market_cap
 
+        # ── EPS (annual) ──────────────────────────────────
+        eps_values = []
+        eps_years = []
+        try:
+            inc = t.get_income_stmt(freq="yearly")
+            eps_row = next((k for k in inc.index if 'diluted' in str(k).lower() and 'eps' in str(k).lower()), None)
+            if eps_row is None:
+                eps_row = next((k for k in inc.index if 'eps' in str(k).lower()), None)
+            if eps_row:
+                eps_raw = sorted(
+                    [(col, inc.loc[eps_row, col]) for col in inc.columns if not np.isnan(inc.loc[eps_row, col])],
+                    key=lambda x: x[0]
+                )
+                eps_values = [round(v, 2) for _, v in eps_raw]
+                eps_years = [str(d.year) for d, _ in eps_raw]
+        except:
+            pass
+
+        # ── P/E ratio ─────────────────────────────────────
+        pe_ratio = None
+        try:
+            pe_ratio = t.info.get('trailingPE', None)
+            if pe_ratio:
+                pe_ratio = round(pe_ratio, 1)
+        except:
+            pass
+
         name = symbol
         try:
             name = t.info.get('longName', symbol)
@@ -54,15 +81,38 @@ def get_financials(symbol):
             'years': years,
             'fcf_latest': fcf_latest,
             'market_cap': mktcap,
+            'eps_values': eps_values,
+            'eps_years': eps_years,
+            'pe_ratio': pe_ratio,
         }
     except Exception as e:
         return {'error': str(e), 'symbol': symbol}
+
+
+def calc_eps_cfo_signal(eps_values, ocf_values):
+    """判断 EPS vs CFO 关系，返回信号"""
+    if len(eps_values) < 2 or len(ocf_values) < 2:
+        return {'signal': 'unknown', 'label': '数据不足', 'color': '#6b7280', 'icon': '—'}
+
+    # 最近两年趋势
+    eps_up = eps_values[-1] > eps_values[-2] if len(eps_values) >= 2 else None
+    cfo_up = ocf_values[-1] > ocf_values[-2] if len(ocf_values) >= 2 else None
+
+    if eps_up and cfo_up:
+        return {'signal': 'healthy', 'label': 'EPS↑ + CFO↑ 真实健康增长', 'color': '#4ade80', 'icon': '✅'}
+    elif eps_up and not cfo_up:
+        return {'signal': 'warning', 'label': 'EPS↑ 但 CFO↓ 利润可能有水分', 'color': '#fbbf24', 'icon': '⚠️'}
+    elif not eps_up and cfo_up:
+        return {'signal': 'neutral', 'label': 'EPS↓ 但 CFO↑ 可能只是会计调整', 'color': '#60a5fa', 'icon': '🔍'}
+    else:
+        return {'signal': 'danger', 'label': 'EPS↓ + CFO↓ 危险信号', 'color': '#f87171', 'icon': '❌'}
 
 
 def calc_scores(data):
     ocf = data['ocf_values']
     mktcap = data.get('market_cap')
     fcf = data.get('fcf_latest')
+    eps_values = data.get('eps_values', [])
 
     growths = []
     for i in range(1, len(ocf)):
@@ -110,6 +160,20 @@ def calc_scores(data):
     elif total >= 40: grade = 'C'
     else: grade = 'D'
 
+    # P/FCF
+    p_fcf = None
+    if fcf and fcf > 0 and mktcap:
+        p_fcf = round(mktcap / fcf, 1)
+
+    # EPS vs CFO signal
+    eps_cfo_signal = calc_eps_cfo_signal(eps_values, ocf)
+
+    # EPS latest + growth
+    eps_latest = eps_values[-1] if eps_values else None
+    eps_growth = None
+    if len(eps_values) >= 2 and eps_values[-2] and eps_values[-2] != 0:
+        eps_growth = round((eps_values[-1] - eps_values[-2]) / abs(eps_values[-2]) * 100, 1)
+
     return {
         'symbol': data['symbol'],
         'name': data['name'],
@@ -127,6 +191,14 @@ def calc_scores(data):
         'avg_growth_pct': round(avg_g * 100, 1),
         'predicted_cfo': round(cfo_latest * (1 + avg_g) / 1e6, 1) if avg_g > 0 else round(cfo_latest / 1e6, 1),
         'predicted_yield': round(cfo_latest * (1 + avg_g) / mktcap * 100, 2) if (mktcap and avg_g > 0) else None,
+        # New fields
+        'eps_latest': eps_latest,
+        'eps_growth': eps_growth,
+        'eps_values': eps_values,
+        'eps_years': data.get('eps_years', []),
+        'pe_ratio': data.get('pe_ratio'),
+        'p_fcf': p_fcf,
+        'eps_cfo_signal': eps_cfo_signal,
     }
 
 
@@ -164,6 +236,16 @@ def health():
 
 
 if __name__ == '__main__':
+    import webbrowser, threading, time
     port = int(os.environ.get('PORT', 5000))
     os.makedirs('static', exist_ok=True)
+    def open_browser():
+        time.sleep(1.5)
+        webbrowser.open(f'http://localhost:{port}')
+    threading.Thread(target=open_browser, daemon=True).start()
+    print("\n" + "="*50)
+    print("  CFO Quality Scorer 启动中...")
+    print("  浏览器将自动打开")
+    print("  关闭此窗口即停止服务器")
+    print("="*50 + "\n")
     app.run(host='0.0.0.0', port=port, debug=False)
